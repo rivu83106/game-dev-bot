@@ -1,19 +1,17 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
-import json
+from discord.ext import commands, tasks
+import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 # ===================================================
 # 設定
 # ===================================================
-TOKEN = os.environ.get("DISCORD_TOKEN")  # Railway上で設定する環境変数
+TOKEN = os.environ.get("DISCORD_TOKEN")
+REMIND_CHANNEL_ID = int(os.environ.get("REMIND_CHANNEL_ID", "0"))  # リマインド送信先チャンネルID
 
-DATA_FILE = "tasks.json"
-
-MONTHS = ["7月", "8月", "9月", "10月", "11月", "12月"]
-MONTH_NUMS = [7, 8, 9, 10, 11, 12]
+DB_FILE = "tasks.db"
 
 CATEGORIES = {
     "planning":    "📋 企画・設計",
@@ -37,22 +35,72 @@ STATUS_COLORS = {
 }
 
 # ===================================================
-# データ読み書き
+# DB 初期化
 # ===================================================
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"tasks": []}
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+def init_db():
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT NOT NULL,
+            assignee_id INTEGER NOT NULL,
+            assignee_name TEXT NOT NULL,
+            category    TEXT NOT NULL,
+            start_date  TEXT NOT NULL,
+            due_date    TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'todo',
+            note        TEXT DEFAULT '',
+            created_by  TEXT,
+            created_at  TEXT
+        )
+    """)
+    con.commit()
+    con.close()
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def get_all_tasks():
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    cur.execute("SELECT * FROM tasks ORDER BY due_date ASC")
+    rows = [dict(r) for r in cur.fetchall()]
+    con.close()
+    return rows
 
-def next_id(tasks):
-    if not tasks:
-        return 1
-    return max(t["id"] for t in tasks) + 1
+def get_task(task_id):
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    cur.execute("SELECT * FROM tasks WHERE id=?", (task_id,))
+    row = cur.fetchone()
+    con.close()
+    return dict(row) if row else None
+
+def add_task(data: dict):
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    cur.execute("""
+        INSERT INTO tasks (title, assignee_id, assignee_name, category, start_date, due_date, note, created_by, created_at)
+        VALUES (:title, :assignee_id, :assignee_name, :category, :start_date, :due_date, :note, :created_by, :created_at)
+    """, data)
+    task_id = cur.lastrowid
+    con.commit()
+    con.close()
+    return task_id
+
+def update_status(task_id, status):
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    cur.execute("UPDATE tasks SET status=? WHERE id=?", (status, task_id))
+    con.commit()
+    con.close()
+
+def delete_task(task_id):
+    con = sqlite3.connect(DB_FILE)
+    cur = con.cursor()
+    cur.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+    con.commit()
+    con.close()
 
 # ===================================================
 # Bot 初期化
@@ -62,8 +110,73 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
+    init_db()
     await bot.tree.sync()
+    remind_loop.start()
     print(f"✅ Botが起動しました: {bot.user}")
+
+# ===================================================
+# Embedを作る共通関数
+# ===================================================
+def make_task_embed(task: dict) -> discord.Embed:
+    status = task["status"]
+    embed = discord.Embed(
+        title=task["title"],
+        color=STATUS_COLORS.get(status, discord.Color.default()),
+    )
+    embed.add_field(name="担当者", value=task["assignee_name"], inline=True)
+    embed.add_field(name="ステータス", value=STATUSES.get(status, status), inline=True)
+    embed.add_field(name="カテゴリ", value=CATEGORIES.get(task["category"], task["category"]), inline=True)
+    embed.add_field(name="開始日", value=task["start_date"], inline=True)
+    embed.add_field(name="締切日", value=task["due_date"], inline=True)
+    embed.add_field(name="ID", value=f"#{task['id']}", inline=True)
+    if task.get("note"):
+        embed.add_field(name="メモ", value=task["note"], inline=False)
+    return embed
+
+# ===================================================
+# ボタン付きViewクラス
+# ===================================================
+class TaskView(discord.ui.View):
+    def __init__(self, task_id: int):
+        super().__init__(timeout=None)
+        self.task_id = task_id
+
+    @discord.ui.button(label="⬜ 未着手", style=discord.ButtonStyle.secondary, custom_id="btn_todo")
+    async def btn_todo(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._update(interaction, "todo")
+
+    @discord.ui.button(label="🔄 進行中", style=discord.ButtonStyle.primary, custom_id="btn_in_progress")
+    async def btn_in_progress(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._update(interaction, "in_progress")
+
+    @discord.ui.button(label="✅ 完了", style=discord.ButtonStyle.success, custom_id="btn_done")
+    async def btn_done(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._update(interaction, "done")
+
+    @discord.ui.button(label="🗑 削除", style=discord.ButtonStyle.danger, custom_id="btn_delete")
+    async def btn_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        task = get_task(self.task_id)
+        if not task:
+            await interaction.response.send_message("❌ タスクが見つかりません。", ephemeral=True)
+            return
+        delete_task(self.task_id)
+        await interaction.response.edit_message(
+            content=f"🗑️ タスク **{task['title']}** を削除しました。",
+            embed=None,
+            view=None,
+        )
+
+    async def _update(self, interaction: discord.Interaction, new_status: str):
+        task = get_task(self.task_id)
+        if not task:
+            await interaction.response.send_message("❌ タスクが見つかりません。", ephemeral=True)
+            return
+        update_status(self.task_id, new_status)
+        task["status"] = new_status
+        embed = make_task_embed(task)
+        embed.set_footer(text=f"更新者: {interaction.user.display_name}  |  {datetime.now().strftime('%Y/%m/%d %H:%M')}")
+        await interaction.response.edit_message(embed=embed, view=self)
 
 # ===================================================
 # /task_add  タスクを追加する
@@ -73,59 +186,56 @@ async def on_ready():
     title="タスク名（例：バトルシステム実装）",
     assignee="担当者のDiscordユーザー",
     category="カテゴリ",
-    start_month="開始月（7〜12）",
-    end_month="終了月（7〜12）",
+    start_date="開始日（例：2026-07-01）",
+    due_date="締切日（例：2026-08-15）",
     note="メモ・詳細（省略可）",
 )
 @app_commands.choices(
-    category=[app_commands.Choice(name=v, value=k) for k, v in CATEGORIES.items()],
-    start_month=[app_commands.Choice(name=m, value=n) for m, n in zip(MONTHS, MONTH_NUMS)],
-    end_month=[app_commands.Choice(name=m, value=n) for m, n in zip(MONTHS, MONTH_NUMS)],
+    category=[app_commands.Choice(name=v, value=k) for k, v in CATEGORIES.items()]
 )
 async def task_add(
     interaction: discord.Interaction,
     title: str,
     assignee: discord.Member,
     category: str,
-    start_month: int,
-    end_month: int,
+    start_date: str,
+    due_date: str,
     note: str = "",
 ):
-    if end_month < start_month:
-        await interaction.response.send_message("❌ 終了月は開始月以降にしてください。", ephemeral=True)
+    # 日付バリデーション
+    try:
+        sd = datetime.strptime(start_date, "%Y-%m-%d").date()
+        dd = datetime.strptime(due_date, "%Y-%m-%d").date()
+    except ValueError:
+        await interaction.response.send_message(
+            "❌ 日付の形式が正しくありません。`2026-07-01` のように入力してください。", ephemeral=True
+        )
         return
 
-    data = load_data()
-    task = {
-        "id": next_id(data["tasks"]),
+    if dd < sd:
+        await interaction.response.send_message("❌ 締切日は開始日以降にしてください。", ephemeral=True)
+        return
+
+    task_data = {
         "title": title,
         "assignee_id": assignee.id,
         "assignee_name": assignee.display_name,
         "category": category,
-        "start_month": start_month,
-        "end_month": end_month,
-        "status": "todo",
+        "start_date": start_date,
+        "due_date": due_date,
         "note": note,
         "created_by": interaction.user.display_name,
         "created_at": datetime.now().strftime("%Y/%m/%d %H:%M"),
     }
-    data["tasks"].append(task)
-    save_data(data)
+    task_id = add_task(task_data)
+    task_data["id"] = task_id
+    task_data["status"] = "todo"
 
-    embed = discord.Embed(
-        title=f"✅ タスクを追加しました",
-        description=f"**{title}**",
-        color=discord.Color.blue(),
-    )
-    embed.add_field(name="担当者", value=assignee.mention, inline=True)
-    embed.add_field(name="カテゴリ", value=CATEGORIES.get(category, category), inline=True)
-    embed.add_field(name="期間", value=f"{MONTHS[start_month-7]}〜{MONTHS[end_month-7]}", inline=True)
-    embed.add_field(name="ステータス", value=STATUSES["todo"], inline=True)
-    embed.add_field(name="ID", value=f"#{task['id']}", inline=True)
-    if note:
-        embed.add_field(name="メモ", value=note, inline=False)
-    embed.set_footer(text=f"追加者: {interaction.user.display_name}")
-    await interaction.response.send_message(embed=embed)
+    embed = make_task_embed(task_data)
+    embed.set_author(name=f"✅ タスクを追加しました（追加者: {interaction.user.display_name}）")
+
+    view = TaskView(task_id=task_id)
+    await interaction.response.send_message(embed=embed, view=view)
 
 # ===================================================
 # /task_list  タスク一覧を表示する
@@ -148,8 +258,8 @@ async def task_list(
     filter_status: str = "all",
     filter_member: discord.Member = None,
 ):
-    data = load_data()
-    tasks = data["tasks"]
+    all_tasks = get_all_tasks()
+    tasks = all_tasks
 
     if filter_status != "all":
         tasks = [t for t in tasks if t["status"] == filter_status]
@@ -160,205 +270,175 @@ async def task_list(
         await interaction.response.send_message("📭 タスクはありません。", ephemeral=True)
         return
 
-    total = len(data["tasks"])
-    done = len([t for t in data["tasks"] if t["status"] == "done"])
-    pct = round(done / total * 100) if total > 0 else 0
+    total = len(all_tasks)
+    done_count = len([t for t in all_tasks if t["status"] == "done"])
+    pct = round(done_count / total * 100) if total > 0 else 0
 
     embed = discord.Embed(
         title="📋 タスク一覧",
-        description=f"**全体進捗: {pct}% ({done}/{total} 完了)**",
+        description=f"**全体進捗: {pct}% ({done_count}/{total} 完了)**",
         color=discord.Color.blurple(),
     )
 
+    today = date.today()
     for status_key, status_label in STATUSES.items():
         group = [t for t in tasks if t["status"] == status_key]
         if not group:
             continue
         lines = []
         for t in group:
-            period = f"{MONTHS[t['start_month']-7]}〜{MONTHS[t['end_month']-7]}"
-            lines.append(f"`#{t['id']}` {t['title']} ｜ **{t['assignee_name']}** ｜ {period}")
-        embed.add_field(
-            name=f"{status_label} ({len(group)}件)",
-            value="\n".join(lines),
-            inline=False,
-        )
+            due = datetime.strptime(t["due_date"], "%Y-%m-%d").date()
+            days_left = (due - today).days
+            if status_key != "done":
+                if days_left < 0:
+                    deadline_tag = " 🚨 **期限切れ**"
+                elif days_left <= 3:
+                    deadline_tag = f" ⚠️ 残{days_left}日"
+                else:
+                    deadline_tag = f" (締切: {t['due_date']})"
+            else:
+                deadline_tag = ""
+            lines.append(f"`#{t['id']}` {t['title']} ｜ **{t['assignee_name']}**{deadline_tag}")
+        embed.add_field(name=f"{status_label} ({len(group)}件)", value="\n".join(lines), inline=False)
 
     await interaction.response.send_message(embed=embed)
 
 # ===================================================
-# /task_done  タスクを完了にする
+# /schedule  スケジュール表示
 # ===================================================
-@bot.tree.command(name="task_done", description="タスクを完了にします")
-@app_commands.describe(task_id="完了にするタスクのID（/task_listで確認できます）")
-async def task_done(interaction: discord.Interaction, task_id: int):
-    data = load_data()
-    task = next((t for t in data["tasks"] if t["id"] == task_id), None)
-
-    if not task:
-        await interaction.response.send_message(f"❌ ID #{task_id} のタスクは見つかりませんでした。", ephemeral=True)
-        return
-
-    old_status = task["status"]
-    task["status"] = "done"
-    task["done_at"] = datetime.now().strftime("%Y/%m/%d %H:%M")
-    task["done_by"] = interaction.user.display_name
-    save_data(data)
-
-    embed = discord.Embed(
-        title="✅ タスクを完了しました！",
-        description=f"**{task['title']}**",
-        color=discord.Color.green(),
-    )
-    embed.add_field(name="担当者", value=task["assignee_name"], inline=True)
-    embed.add_field(name="完了者", value=interaction.user.display_name, inline=True)
-    await interaction.response.send_message(embed=embed)
-
-# ===================================================
-# /task_status  ステータスを変更する
-# ===================================================
-@bot.tree.command(name="task_status", description="タスクのステータスを変更します")
-@app_commands.describe(
-    task_id="変更するタスクのID",
-    new_status="新しいステータス",
-)
-@app_commands.choices(
-    new_status=[app_commands.Choice(name=v, value=k) for k, v in STATUSES.items()]
-)
-async def task_status(interaction: discord.Interaction, task_id: int, new_status: str):
-    data = load_data()
-    task = next((t for t in data["tasks"] if t["id"] == task_id), None)
-
-    if not task:
-        await interaction.response.send_message(f"❌ ID #{task_id} のタスクは見つかりませんでした。", ephemeral=True)
-        return
-
-    task["status"] = new_status
-    save_data(data)
-
-    embed = discord.Embed(
-        title="🔄 ステータスを変更しました",
-        description=f"**{task['title']}**",
-        color=STATUS_COLORS.get(new_status, discord.Color.default()),
-    )
-    embed.add_field(name="新しいステータス", value=STATUSES[new_status], inline=True)
-    embed.add_field(name="担当者", value=task["assignee_name"], inline=True)
-    await interaction.response.send_message(embed=embed)
-
-# ===================================================
-# /task_delete  タスクを削除する
-# ===================================================
-@bot.tree.command(name="task_delete", description="タスクを削除します")
-@app_commands.describe(task_id="削除するタスクのID")
-async def task_delete(interaction: discord.Interaction, task_id: int):
-    data = load_data()
-    task = next((t for t in data["tasks"] if t["id"] == task_id), None)
-
-    if not task:
-        await interaction.response.send_message(f"❌ ID #{task_id} のタスクは見つかりませんでした。", ephemeral=True)
-        return
-
-    data["tasks"] = [t for t in data["tasks"] if t["id"] != task_id]
-    save_data(data)
-
-    await interaction.response.send_message(f"🗑️ タスク **{task['title']}** (#{task_id}) を削除しました。")
-
-# ===================================================
-# /schedule  ガントチャート風のスケジュールを表示する
-# ===================================================
-@bot.tree.command(name="schedule", description="ガントチャート風のスケジュールを表示します")
+@bot.tree.command(name="schedule", description="タスクのスケジュール一覧を表示します")
 async def schedule(interaction: discord.Interaction):
-    data = load_data()
-    tasks = data["tasks"]
-
+    tasks = get_all_tasks()
     if not tasks:
         await interaction.response.send_message("📭 タスクがありません。", ephemeral=True)
         return
 
-    header = "```\n"
-    header += f"{'タスク名':<18} {'担当':<8} "
-    for m in MONTHS:
-        header += f"{m:<5}"
-    header += "\n"
-    header += "─" * (18 + 8 + 2 + 5 * 6) + "\n"
-
-    rows = ""
-    for t in sorted(tasks, key=lambda x: x["start_month"]):
-        bar = ""
-        done = t["status"] == "done"
-        ip   = t["status"] == "in_progress"
-        for m in MONTH_NUMS:
-            if t["start_month"] <= m <= t["end_month"]:
-                bar += "██" if done else ("▓▓" if ip else "░░")
+    today = date.today()
+    lines = []
+    for t in tasks:
+        due = datetime.strptime(t["due_date"], "%Y-%m-%d").date()
+        days_left = (due - today).days
+        status_icon = {"todo": "⬜", "in_progress": "🔄", "done": "✅"}.get(t["status"], "❓")
+        if t["status"] != "done":
+            if days_left < 0:
+                deadline = "🚨 期限切れ"
+            elif days_left == 0:
+                deadline = "⚠️ 今日締切"
+            elif days_left <= 3:
+                deadline = f"⚠️ 残{days_left}日"
             else:
-                bar += "  "
-            bar += "   "
-        title_trunc = t["title"][:16] if len(t["title"]) > 16 else t["title"]
-        assignee_trunc = t["assignee_name"][:7] if len(t["assignee_name"]) > 7 else t["assignee_name"]
-        rows += f"{title_trunc:<18} {assignee_trunc:<8} {bar}\n"
-
-    footer = "\n██ 完了  ▓▓ 進行中  ░░ 未着手\n```"
-
-    total = len(tasks)
-    done_count = len([t for t in tasks if t["status"] == "done"])
-    pct = round(done_count / total * 100) if total > 0 else 0
+                deadline = f"残{days_left}日"
+        else:
+            deadline = "完了済"
+        lines.append(f"{status_icon} `#{t['id']}` **{t['title']}**\n　　{t['start_date']} 〜 {t['due_date']}  ｜ {t['assignee_name']} ｜ {deadline}")
 
     embed = discord.Embed(
-        title=f"📅 スケジュール（7月〜12月）",
-        description=header + rows + footer,
+        title="📅 スケジュール一覧",
+        description="\n".join(lines),
         color=discord.Color.blurple(),
     )
-    embed.set_footer(text=f"全体進捗: {pct}% ({done_count}/{total} 完了)")
+    total = len(tasks)
+    done_count = len([t for t in tasks if t["status"] == "done"])
+    embed.set_footer(text=f"全体進捗: {round(done_count/total*100) if total else 0}% ({done_count}/{total} 完了)")
     await interaction.response.send_message(embed=embed)
 
 # ===================================================
-# /my_tasks  自分のタスクを確認する
+# /my_tasks  自分のタスク確認
 # ===================================================
-@bot.tree.command(name="my_tasks", description="自分のタスク一覧を表示します")
+@bot.tree.command(name="my_tasks", description="自分のタスク一覧を表示します（自分だけ見える）")
 async def my_tasks(interaction: discord.Interaction):
-    data = load_data()
-    tasks = [t for t in data["tasks"] if t["assignee_id"] == interaction.user.id]
-
+    tasks = [t for t in get_all_tasks() if t["assignee_id"] == interaction.user.id]
     if not tasks:
         await interaction.response.send_message("📭 あなたのタスクはありません。", ephemeral=True)
         return
 
-    embed = discord.Embed(
-        title=f"📌 {interaction.user.display_name} のタスク",
-        color=discord.Color.og_blurple(),
-    )
+    today = date.today()
+    embed = discord.Embed(title=f"📌 {interaction.user.display_name} のタスク", color=discord.Color.og_blurple())
     for status_key, status_label in STATUSES.items():
         group = [t for t in tasks if t["status"] == status_key]
         if not group:
             continue
-        lines = [f"`#{t['id']}` {t['title']} ({MONTHS[t['start_month']-7]}〜{MONTHS[t['end_month']-7]})" for t in group]
-        embed.add_field(name=f"{status_label}", value="\n".join(lines), inline=False)
+        lines = []
+        for t in group:
+            due = datetime.strptime(t["due_date"], "%Y-%m-%d").date()
+            days_left = (due - today).days
+            tag = f" ⚠️ 残{days_left}日" if 0 <= days_left <= 3 and status_key != "done" else ""
+            lines.append(f"`#{t['id']}` {t['title']} ({t['due_date']}){tag}")
+        embed.add_field(name=status_label, value="\n".join(lines), inline=False)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ===================================================
-# /help_game  コマンド一覧を表示する
+# /help_game  コマンド一覧
 # ===================================================
 @bot.tree.command(name="help_game", description="Botのコマンド一覧を表示します")
 async def help_game(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎮 ゲーム開発タスク管理Bot - コマンド一覧",
-        color=discord.Color.blurple(),
-    )
+    embed = discord.Embed(title="🎮 ゲーム開発タスク管理Bot - コマンド一覧", color=discord.Color.blurple())
     commands_info = [
-        ("/task_add",    "タスクを追加する（担当者・期間・カテゴリを指定）"),
-        ("/task_list",   "タスク一覧を表示する（ステータス・メンバーで絞り込み可）"),
-        ("/task_done",   "タスクをIDを指定して完了にする"),
-        ("/task_status", "タスクのステータスを変更する"),
-        ("/task_delete", "タスクをIDを指定して削除する"),
-        ("/schedule",    "ガントチャート風のスケジュールを表示する"),
-        ("/my_tasks",    "自分のタスク一覧を表示する（自分だけ見える）"),
-        ("/help_game",   "このコマンド一覧を表示する"),
+        ("/task_add",  "タスクを追加（ボタンでステータス変更・削除もできる）"),
+        ("/task_list", "タスク一覧（締切が近いものは自動で警告表示）"),
+        ("/schedule",  "スケジュール一覧（締切まで残り日数つき）"),
+        ("/my_tasks",  "自分のタスクだけ表示（自分にしか見えない）"),
+        ("/help_game", "このコマンド一覧を表示"),
     ]
     for cmd, desc in commands_info:
         embed.add_field(name=cmd, value=desc, inline=False)
-    embed.set_footer(text="タスクIDは /task_list で確認できます")
+    embed.set_footer(text="タスク追加後のメッセージのボタンでステータス変更・削除ができます")
     await interaction.response.send_message(embed=embed)
+
+# ===================================================
+# リマインド機能（毎日朝9時にチェック）
+# ===================================================
+@tasks.loop(hours=24)
+async def remind_loop():
+    if REMIND_CHANNEL_ID == 0:
+        return
+
+    channel = bot.get_channel(REMIND_CHANNEL_ID)
+    if not channel:
+        return
+
+    today = date.today()
+    all_tasks = get_all_tasks()
+    active_tasks = [t for t in all_tasks if t["status"] != "done"]
+
+    overdue    = [t for t in active_tasks if (datetime.strptime(t["due_date"], "%Y-%m-%d").date() - today).days < 0]
+    due_today  = [t for t in active_tasks if (datetime.strptime(t["due_date"], "%Y-%m-%d").date() - today).days == 0]
+    due_1day   = [t for t in active_tasks if (datetime.strptime(t["due_date"], "%Y-%m-%d").date() - today).days == 1]
+    due_3days  = [t for t in active_tasks if (datetime.strptime(t["due_date"], "%Y-%m-%d").date() - today).days == 3]
+
+    if not any([overdue, due_today, due_1day, due_3days]):
+        return
+
+    embed = discord.Embed(
+        title="⏰ 締切リマインド",
+        description=today.strftime("%Y年%m月%d日"),
+        color=discord.Color.red(),
+    )
+
+    def fmt(tasks_list):
+        return "\n".join([f"• `#{t['id']}` {t['title']} （{t['assignee_name']}）" for t in tasks_list])
+
+    if overdue:
+        embed.add_field(name=f"🚨 期限切れ ({len(overdue)}件)", value=fmt(overdue), inline=False)
+    if due_today:
+        embed.add_field(name=f"🔴 今日締切 ({len(due_today)}件)", value=fmt(due_today), inline=False)
+    if due_1day:
+        embed.add_field(name=f"🟠 明日締切 ({len(due_1day)}件)", value=fmt(due_1day), inline=False)
+    if due_3days:
+        embed.add_field(name=f"🟡 3日後締切 ({len(due_3days)}件)", value=fmt(due_3days), inline=False)
+
+    await channel.send(embed=embed)
+
+@remind_loop.before_loop
+async def before_remind():
+    await bot.wait_until_ready()
+    # 毎日朝9時（JST = UTC+9）に合わせる
+    now = datetime.utcnow()
+    target = now.replace(hour=0, minute=0, second=0, microsecond=0)  # UTC 0時 = JST 9時
+    if now >= target:
+        target += timedelta(days=1)
+    await discord.utils.sleep_until(target)
 
 # ===================================================
 # 起動
