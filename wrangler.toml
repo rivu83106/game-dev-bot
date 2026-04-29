@@ -1,0 +1,23 @@
+name = "game-dev-bot"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "game-dev-bot-db"
+database_id = "placeholder-replace-with-actual-d1-id"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "placeholder-replace-with-actual-kv-id"
+
+[triggers]
+crons = ["0 0 * * *"]
+
+[vars]
+DISCORD_APPLICATION_ID = "YOUR_APPLICATION_ID"
+
+# シークレットは以下のコマンドで設定してください:
+# wrangler secret put DISCORD_PUBLIC_KEY
+# wrangler secret put DISCORD_TOKEN
