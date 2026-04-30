@@ -1,12 +1,42 @@
 // Discord スラッシュコマンド登録スクリプト
-// 実行: npx tsx scripts/register.ts
-// 環境変数: DISCORD_TOKEN, DISCORD_APPLICATION_ID
+//
+// Guild（即時反映, デフォルト）:
+//   npm run register          -- DISCORD_GUILD_ID が必要
+//   npx tsx scripts/register.ts guild
+//
+// Global（最大1時間, 本番リリース時）:
+//   npm run register:global
+//   npx tsx scripts/register.ts global
+//
+// 環境変数: DISCORD_TOKEN, DISCORD_APPLICATION_ID, [DISCORD_GUILD_ID]
+// プロジェクトルートに .env ファイルを置けば自動で読み込みます。
 
-const TOKEN  = process.env.DISCORD_TOKEN!;
-const APP_ID = process.env.DISCORD_APPLICATION_ID!;
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+try {
+  const envText = readFileSync(resolve(process.cwd(), ".env"), "utf8");
+  for (const line of envText.split("\n")) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/i);
+    if (m && !process.env[m[1]]) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  }
+} catch { /* .env なしでもOK */ }
+
+const TOKEN    = process.env.DISCORD_TOKEN!;
+const APP_ID   = process.env.DISCORD_APPLICATION_ID!;
+const GUILD_ID = process.env.DISCORD_GUILD_ID ?? "";
+
+// コマンドライン引数: "guild" | "global" (デフォルト "guild")
+const mode = (process.argv[2] ?? "guild") === "global" ? "global" : "guild";
 
 if (!TOKEN || !APP_ID) {
-  console.error("DISCORD_TOKEN と DISCORD_APPLICATION_ID を環境変数に設定してください。");
+  console.error("❌ DISCORD_TOKEN と DISCORD_APPLICATION_ID を設定してください。");
+  process.exit(1);
+}
+if (mode === "guild" && !GUILD_ID) {
+  console.error("❌ Guild モードでは DISCORD_GUILD_ID を設定してください。");
   process.exit(1);
 }
 
@@ -20,9 +50,9 @@ const CATEGORIES = [
 ];
 
 const PRIORITIES = [
-  { name: "🟢 低",  value: "low" },
-  { name: "🟡 中",  value: "medium" },
-  { name: "🔴 高",  value: "high" },
+  { name: "🟢 低",   value: "low" },
+  { name: "🟡 中",   value: "medium" },
+  { name: "🔴 高",   value: "high" },
   { name: "🚨 緊急", value: "urgent" },
 ];
 
@@ -64,9 +94,9 @@ const commands = [
     name: "task_depends",
     description: "タスクの依存関係を管理します",
     options: [
-      { type: 4, name: "id",         description: "対象タスクID",                   required: true },
-      { type: 3, name: "action",     description: "操作",                           required: true, choices: [{ name: "追加", value: "add" }, { name: "削除", value: "remove" }, { name: "一覧", value: "list" }] },
-      { type: 4, name: "depends_on", description: "依存先タスクID（add/removeのみ）", required: false },
+      { type: 4, name: "id",         description: "対象タスクID",                      required: true },
+      { type: 3, name: "action",     description: "操作",                              required: true, choices: [{ name: "追加", value: "add" }, { name: "削除", value: "remove" }, { name: "一覧", value: "list" }] },
+      { type: 4, name: "depends_on", description: "依存先タスクID（add/removeのみ）",  required: false },
     ],
   },
   {
@@ -91,7 +121,13 @@ const commands = [
 ];
 
 async function register() {
-  const url = `https://discord.com/api/v10/applications/${APP_ID}/commands`;
+  const url = mode === "guild"
+    ? `https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`
+    : `https://discord.com/api/v10/applications/${APP_ID}/commands`;
+
+  console.log(`📡 モード: ${mode === "guild" ? `Guild (${GUILD_ID})` : "Global"}`);
+  console.log(`🔗 URL: ${url}`);
+
   const res = await fetch(url, {
     method: "PUT",
     headers: {
@@ -107,10 +143,20 @@ async function register() {
     process.exit(1);
   }
 
-  const data = await res.json();
-  console.log(`✅ ${(data as unknown[]).length} 件のコマンドを登録しました。`);
-  for (const cmd of data as { name: string; id: string }[]) {
+  const data = await res.json() as { name: string; id: string }[];
+  console.log(`✅ ${data.length} 件のコマンドを登録しました。`);
+  for (const cmd of data) {
     console.log(`  /${cmd.name} (ID: ${cmd.id})`);
+  }
+
+  if (mode === "global") {
+    console.log("\n⏳ Global コマンドはDiscord全体への反映に最大1時間かかります。");
+    console.log("   すぐ確認したい場合は Guild モードを使ってください:");
+    console.log("   npm run register");
+  } else {
+    console.log("\n⚡ Guild コマンドは即時反映されます。");
+    console.log("   本番リリース時は Global に切り替えてください:");
+    console.log("   npm run register:global");
   }
 }
 
