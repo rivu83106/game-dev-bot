@@ -3,14 +3,13 @@ import type { Task } from "./types.js";
 
 // ===== カレンダーピッカー UI =====
 
-const CURRENT_YEAR = new Date().getUTCFullYear();
-
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
 }
 
 function yearOptions() {
-  return [CURRENT_YEAR, CURRENT_YEAR + 1, CURRENT_YEAR + 2].map(y => ({
+  // 2026〜2030 の固定範囲
+  return [2026, 2027, 2028, 2029, 2030].map(y => ({
     label: `${y}年`,
     value: String(y),
   }));

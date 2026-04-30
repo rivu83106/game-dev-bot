@@ -8,7 +8,7 @@ import {
   makeTaskEmbed, jsonResponse, nowJST,
 } from "./utils.js";
 import {
-  calStartMonthMessage, calStartDayMessage,
+  calStartYearMessage, calStartMonthMessage, calStartDayMessage,
   calDueYearMessage, calDueMonthMessage, calDueDayMessage, calConfirmMessage,
   editStartYearMessage, editStartMonthMessage, editStartDayMessage,
   editDueYearMessage, editDueMonthMessage, editDueDayMessage, editDatesConfirmMessage,
@@ -21,6 +21,10 @@ import type { Env, DiscordInteraction, TaskSession, EditSession } from "./types.
 
 export async function handleComponent(interaction: DiscordInteraction, env: Env): Promise<Response> {
   const customId = interaction.data?.custom_id ?? "";
+
+  // ===== 担当者選択（タスク追加の最初のステップ）=====
+  if (customId.startsWith("assignee:"))     return handleAssigneeSelect(interaction, env, customId);
+  if (customId.startsWith("assignee_all:")) return handleAssigneeAll(interaction, env, customId);
 
   // ===== カレンダーピッカー（タスク追加）=====
   if (customId.startsWith("csy:")) return handleCalStartYear(interaction, env, customId);
@@ -55,6 +59,50 @@ export async function handleComponent(interaction: DiscordInteraction, env: Env)
   if (customId.startsWith("sched:")) return handleSchedNav(interaction, env, customId);
 
   return jsonResponse({ type: ICT.CHANNEL_MESSAGE, data: { content: "❌ 不明な操作です。", flags: 64 } });
+}
+
+// ===== 担当者選択 =====
+
+async function handleAssigneeSelect(i: DiscordInteraction, env: Env, customId: string): Promise<Response> {
+  const sessionKey = customId.split(":")[1];
+  const userIds    = i.data?.values ?? [];
+
+  const raw = await env.KV.get(`session:${sessionKey}`);
+  if (!raw) {
+    return jsonResponse({ type: ICT.UPDATE_MESSAGE, data: { content: "❌ セッションが期限切れです。/task_addからやり直してください。", components: [] } });
+  }
+  const session: TaskSession & { assign_everyone?: boolean } = JSON.parse(raw);
+
+  // 名前を解決
+  const names: string[] = userIds.map(id => {
+    const resolved = i.data?.resolved?.users?.[id];
+    const member   = i.data?.resolved?.members?.[id];
+    return member?.nick ?? resolved?.global_name ?? resolved?.username ?? id;
+  });
+
+  session.assignee_ids    = userIds;
+  session.assignee_names  = names;
+  session.assign_everyone = false;
+  await env.KV.put(`session:${sessionKey}`, JSON.stringify(session), { expirationTtl: 900 });
+
+  // 開始日カレンダーへ
+  return jsonResponse({ type: ICT.UPDATE_MESSAGE, data: calStartYearMessage(sessionKey) });
+}
+
+async function handleAssigneeAll(_i: DiscordInteraction, env: Env, customId: string): Promise<Response> {
+  const sessionKey = customId.split(":")[1];
+
+  const raw = await env.KV.get(`session:${sessionKey}`);
+  if (!raw) {
+    return jsonResponse({ type: ICT.UPDATE_MESSAGE, data: { content: "❌ セッションが期限切れです。", components: [] } });
+  }
+  const session: TaskSession & { assign_everyone?: boolean } = JSON.parse(raw);
+  session.assign_everyone = true;
+  session.assignee_ids    = [];
+  session.assignee_names  = [];
+  await env.KV.put(`session:${sessionKey}`, JSON.stringify(session), { expirationTtl: 900 });
+
+  return jsonResponse({ type: ICT.UPDATE_MESSAGE, data: calStartYearMessage(sessionKey) });
 }
 
 // ===== カレンダーピッカー（タスク追加）実装 =====

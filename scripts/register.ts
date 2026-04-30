@@ -65,14 +65,12 @@ const STATUSES = [
 const commands = [
   {
     name: "task_add",
-    description: "タスクを追加します（カレンダーで日付選択）",
+    description: "タスクを追加します（担当者・カレンダーで日付を選択）",
     options: [
-      { type: 3, name: "title",           description: "タスク名",                         required: true },
-      { type: 3, name: "category",        description: "カテゴリ",                         required: true,  choices: CATEGORIES },
-      { type: 3, name: "priority",        description: "優先度",                           required: true,  choices: PRIORITIES },
-      { type: 6, name: "assignee",        description: "担当者のDiscordユーザー",          required: false },
-      { type: 5, name: "assign_everyone", description: "全員を担当者にする（省略=false）", required: false },
-      { type: 3, name: "note",            description: "メモ・詳細（省略可）",             required: false },
+      { type: 3, name: "title",    description: "タスク名",             required: true },
+      { type: 3, name: "category", description: "カテゴリ",             required: true, choices: CATEGORIES },
+      { type: 3, name: "priority", description: "優先度",               required: true, choices: PRIORITIES },
+      { type: 3, name: "note",     description: "メモ・詳細（省略可）", required: false },
     ],
   },
   {
