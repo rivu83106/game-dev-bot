@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "register": "npx tsx scripts/register.ts",
+    "register": "npx tsx scripts/register.ts global",
+    "register:guild": "npx tsx scripts/register.ts guild",
     "db:init": "wrangler d1 execute game-dev-bot-db --file=schema.sql"
   },
   "devDependencies": {
