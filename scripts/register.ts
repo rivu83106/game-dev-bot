@@ -9,6 +9,20 @@
 //   npx tsx scripts/register.ts global
 //
 // 環境変数: DISCORD_TOKEN, DISCORD_APPLICATION_ID, [DISCORD_GUILD_ID]
+// プロジェクトルートに .env ファイルを置けば自動で読み込みます。
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+try {
+  const envText = readFileSync(resolve(process.cwd(), ".env"), "utf8");
+  for (const line of envText.split("\n")) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/i);
+    if (m && !process.env[m[1]]) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  }
+} catch { /* .env なしでもOK */ }
 
 const TOKEN    = process.env.DISCORD_TOKEN!;
 const APP_ID   = process.env.DISCORD_APPLICATION_ID!;
