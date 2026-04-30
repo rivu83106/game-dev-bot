@@ -6,17 +6,17 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "game-dev-bot-db"
-database_id = "placeholder-replace-with-actual-d1-id"
+database_id = "f8502f50-f8b7-414c-91a9-88f5ab7f7ee2"
 
 [[kv_namespaces]]
 binding = "KV"
-id = "placeholder-replace-with-actual-kv-id"
+id = "73ac44186c7d481daa9761777af3c598"
 
 [triggers]
 crons = ["0 0 * * *"]
 
 [vars]
-DISCORD_APPLICATION_ID = "YOUR_APPLICATION_ID"
+DISCORD_APPLICATION_ID = "1488387633590829166"
 
 # シークレットは以下のコマンドで設定してください:
 # wrangler secret put DISCORD_PUBLIC_KEY
