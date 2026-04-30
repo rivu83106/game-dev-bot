@@ -1,82 +1,60 @@
-import { ICT, CT, TIS } from "../constants.js";
-import { calStartYearMessage } from "../calendar.js";
+import { ICT, CT, BS } from "../constants.js";
 import { shortId, jsonResponse } from "../utils.js";
 import type { Env, DiscordInteraction, TaskSession } from "../types.js";
 
 export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): Promise<Response> {
   const opts = interaction.data?.options ?? [];
-  const get = (name: string) => opts.find(o => o.name === name)?.value;
+  const get  = (name: string) => opts.find(o => o.name === name)?.value;
 
-  const title        = String(get("title") ?? "");
-  const category     = String(get("category") ?? "other");
-  const priority     = String(get("priority") ?? "medium");
-  const note         = String(get("note") ?? "");
-  const everyoneOpt  = get("assign_everyone");
-  const assignEveryone = everyoneOpt === true || everyoneOpt === "true";
-
-  // 担当者の解決
-  let assigneeIds: string[]   = [];
-  let assigneeNames: string[] = [];
-
-  if (assignEveryone) {
-    assigneeIds   = [];
-    assigneeNames = [];
-  } else {
-    const rawUser = opts.find(o => o.name === "assignee");
-    if (rawUser) {
-      const userId = String(rawUser.value);
-      assigneeIds.push(userId);
-      const resolved = interaction.resolved?.users?.[userId];
-      const member   = interaction.resolved?.members?.[userId];
-      const name     = member?.nick ?? resolved?.global_name ?? resolved?.username ?? userId;
-      assigneeNames.push(name);
-    }
-  }
+  const title    = String(get("title")    ?? "");
+  const category = String(get("category") ?? "other");
+  const priority = String(get("priority") ?? "medium");
+  const note     = String(get("note")     ?? "");
 
   const guildId  = interaction.guild_id ?? "dm";
   const member   = interaction.member;
   const userName = member?.nick ?? member?.user?.global_name ?? member?.user?.username ?? "Unknown";
 
-  const session: TaskSession = {
+  // 担当者は次のステップで選ばせる
+  const session: TaskSession & { assign_everyone?: boolean } = {
     title, category, priority, note,
-    assignee_ids:   assignEveryone ? [] : assigneeIds,
-    assignee_names: assignEveryone ? [] : assigneeNames,
-    guild_id: guildId,
-    user_name: userName,
+    assignee_ids:   [],
+    assignee_names: [],
+    guild_id:       guildId,
+    user_name:      userName,
   };
 
   const sessionKey = shortId();
-  await env.KV.put(
-    `session:${sessionKey}`,
-    JSON.stringify({ ...session, assign_everyone: assignEveryone }),
-    { expirationTtl: 900 } // 15分
-  );
+  await env.KV.put(`session:${sessionKey}`, JSON.stringify(session), { expirationTtl: 900 });
 
-  const msg = calStartYearMessage(sessionKey);
   return jsonResponse({
     type: ICT.CHANNEL_MESSAGE,
-    data: { ...msg, flags: 64 }, // ephemeral
-  });
-}
-
-// カレンダー選択後に呼ばれるモーダル表示（不要になったが互換用）
-export async function openTaskModal(sessionKey: string, startDate: string, dueDate: string): Promise<Response> {
-  return jsonResponse({
-    type: ICT.MODAL,
     data: {
-      title: "タスク詳細",
-      custom_id: `task_modal:${sessionKey}:${startDate}:${dueDate}`,
+      content: "👥 **担当者を選択してください**\nメンバーを直接選ぶか、「全員」ボタンで全員指定できます。",
+      flags: 64, // ephemeral
       components: [
         {
           type: CT.ACTION_ROW,
-          components: [{
-            type: CT.TEXT_INPUT,
-            custom_id: "title",
-            label: "タスク名",
-            style: TIS.SHORT,
-            max_length: 100,
-            required: true,
-          }],
+          components: [
+            {
+              type: 5, // USER_SELECT
+              custom_id: `assignee:${sessionKey}`,
+              placeholder: "担当者を選択（複数選択可）...",
+              min_values: 1,
+              max_values: 10,
+            },
+          ],
+        },
+        {
+          type: CT.ACTION_ROW,
+          components: [
+            {
+              type: CT.BUTTON,
+              style: BS.SECONDARY,
+              custom_id: `assignee_all:${sessionKey}`,
+              label: "👥 全員を担当者にする",
+            },
+          ],
         },
       ],
     },

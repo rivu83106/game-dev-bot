@@ -1,23 +1,28 @@
 name = "game-dev-bot"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
-compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "DB"
-database_name = "game-dev-bot-db"
-database_id = "f8502f50-f8b7-414c-91a9-88f5ab7f7ee2"
-
-[[kv_namespaces]]
-binding = "KV"
-id = "73ac44186c7d481daa9761777af3c598"
 
 [triggers]
 crons = ["0 0 * * *"]
 
-[vars]
-DISCORD_APPLICATION_ID = "1488387633590829166"
+# ===================================================
+# バインディングは Cloudflare Dashboard で設定済み:
+#   DB  → D1 database  : game-dev-bot-db
+#   KV  → KV namespace : game-dev-bot-kv
+#
+# シークレットも Dashboard / wrangler secret put で設定:
+#   DISCORD_PUBLIC_KEY
+#   DISCORD_TOKEN
+#
+# ローカル開発 (wrangler dev) で使う場合は
+# 下記のコメントを外して実際のIDを記入してください:
+# ===================================================
 
-# シークレットは以下のコマンドで設定してください:
-# wrangler secret put DISCORD_PUBLIC_KEY
-# wrangler secret put DISCORD_TOKEN
+# [[d1_databases]]
+# binding      = "DB"
+# database_name = "game-dev-bot-db"
+# database_id  = "YOUR_D1_DATABASE_ID"
+
+# [[kv_namespaces]]
+# binding = "KV"
+# id      = "YOUR_KV_NAMESPACE_ID"
