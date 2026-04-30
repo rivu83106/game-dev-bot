@@ -1,11 +1,11 @@
 // Discord スラッシュコマンド登録スクリプト
 //
-// Guild（即時反映）:
-//   npm run register:guild   -- DISCORD_GUILD_ID が必要
+// Guild（即時反映, デフォルト）:
+//   npm run register          -- DISCORD_GUILD_ID が必要
 //   npx tsx scripts/register.ts guild
 //
-// Global（最大1時間）:
-//   npm run register
+// Global（最大1時間, 本番リリース時）:
+//   npm run register:global
 //   npx tsx scripts/register.ts global
 //
 // 環境変数: DISCORD_TOKEN, DISCORD_APPLICATION_ID, [DISCORD_GUILD_ID]
@@ -14,8 +14,8 @@ const TOKEN    = process.env.DISCORD_TOKEN!;
 const APP_ID   = process.env.DISCORD_APPLICATION_ID!;
 const GUILD_ID = process.env.DISCORD_GUILD_ID ?? "";
 
-// コマンドライン引数: "guild" | "global" (デフォルト "global")
-const mode = (process.argv[2] ?? "global") === "guild" ? "guild" : "global";
+// コマンドライン引数: "guild" | "global" (デフォルト "guild")
+const mode = (process.argv[2] ?? "guild") === "global" ? "global" : "guild";
 
 if (!TOKEN || !APP_ID) {
   console.error("❌ DISCORD_TOKEN と DISCORD_APPLICATION_ID を設定してください。");
@@ -138,11 +138,11 @@ async function register() {
   if (mode === "global") {
     console.log("\n⏳ Global コマンドはDiscord全体への反映に最大1時間かかります。");
     console.log("   すぐ確認したい場合は Guild モードを使ってください:");
-    console.log("   npm run register:guild");
+    console.log("   npm run register");
   } else {
     console.log("\n⚡ Guild コマンドは即時反映されます。");
     console.log("   本番リリース時は Global に切り替えてください:");
-    console.log("   npm run register");
+    console.log("   npm run register:global");
   }
 }
 
