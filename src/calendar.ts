@@ -22,12 +22,45 @@ function monthOptions() {
   }));
 }
 
-function dayOptions(year: number, month: number) {
-  const max = daysInMonth(year, month);
-  return Array.from({ length: max }, (_, i) => ({
+function dayOptionsFirst() {
+  // 前半: 1〜15日（15項目、Discord上限25未満）
+  return Array.from({ length: 15 }, (_, i) => ({
     label: `${i + 1}日`,
     value: String(i + 1).padStart(2, "0"),
   }));
+}
+
+function dayOptionsSecond(year: number, month: number) {
+  // 後半: 16日〜末日
+  const max = daysInMonth(year, month);
+  return Array.from({ length: max - 15 }, (_, i) => ({
+    label: `${i + 16}日`,
+    value: String(i + 16).padStart(2, "0"),
+  }));
+}
+
+function dayPickerRows(customIdPrefix: string, year: number, month: number) {
+  // 2つのセレクトメニューを返す（同じ custom_id 接頭辞で前半/後半を区別）
+  return [
+    {
+      type: CT.ACTION_ROW,
+      components: [{
+        type: CT.STRING_SELECT,
+        custom_id: `${customIdPrefix}:a`,
+        placeholder: "日を選択（1〜15日）...",
+        options: dayOptionsFirst(),
+      }],
+    },
+    {
+      type: CT.ACTION_ROW,
+      components: [{
+        type: CT.STRING_SELECT,
+        custom_id: `${customIdPrefix}:b`,
+        placeholder: `日を選択（16〜${daysInMonth(year, month)}日）...`,
+        options: dayOptionsSecond(year, month),
+      }],
+    },
+  ];
 }
 
 function selectRow(customId: string, placeholder: string, options: { label: string; value: string }[]) {
@@ -62,7 +95,7 @@ export function calStartMonthMessage(sessionKey: string, year: string) {
 export function calStartDayMessage(sessionKey: string, year: string, month: string) {
   return {
     content: `📅 **開始日: ${year}年${parseInt(month)}月**\n日を選択してください`,
-    components: [selectRow(`csd:${sessionKey}:${year}:${month}`, "日を選択...", dayOptions(Number(year), Number(month)))],
+    components: dayPickerRows(`csd:${sessionKey}:${year}:${month}`, Number(year), Number(month)),
   };
 }
 
@@ -86,7 +119,7 @@ export function calDueMonthMessage(sessionKey: string, startDate: string, year: 
 export function calDueDayMessage(sessionKey: string, startDate: string, year: string, month: string) {
   return {
     content: `📅 開始日: **${startDate}** ✅\n📅 **締切日: ${year}年${parseInt(month)}月**\n日を選択してください`,
-    components: [selectRow(`cdd:${sessionKey}:${startDate}:${year}:${month}`, "日を選択...", dayOptions(Number(year), Number(month)))],
+    components: dayPickerRows(`cdd:${sessionKey}:${startDate}:${year}:${month}`, Number(year), Number(month)),
   };
 }
 
@@ -122,7 +155,7 @@ export function editStartMonthMessage(sessionKey: string, year: string) {
 export function editStartDayMessage(sessionKey: string, year: string, month: string) {
   return {
     content: `📅 **開始日: ${year}年${parseInt(month)}月**\n日を選択してください`,
-    components: [selectRow(`ecd:${sessionKey}:${year}:${month}`, "日を選択...", dayOptions(Number(year), Number(month)))],
+    components: dayPickerRows(`ecd:${sessionKey}:${year}:${month}`, Number(year), Number(month)),
   };
 }
 export function editDueYearMessage(sessionKey: string, startDate: string) {
@@ -140,7 +173,7 @@ export function editDueMonthMessage(sessionKey: string, startDate: string, year:
 export function editDueDayMessage(sessionKey: string, startDate: string, year: string, month: string) {
   return {
     content: `📅 開始日: **${startDate}** ✅\n📅 **締切日: ${year}年${parseInt(month)}月**\n日を選択してください`,
-    components: [selectRow(`edd:${sessionKey}:${startDate}:${year}:${month}`, "日を選択...", dayOptions(Number(year), Number(month)))],
+    components: dayPickerRows(`edd:${sessionKey}:${startDate}:${year}:${month}`, Number(year), Number(month)),
   };
 }
 export function editDatesConfirmMessage(sessionKey: string, startDate: string, dueDate: string) {
