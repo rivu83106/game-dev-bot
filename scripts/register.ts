@@ -67,10 +67,11 @@ const commands = [
     name: "task_add",
     description: "タスクを追加します（担当者・カレンダーで日付を選択）",
     options: [
-      { type: 3, name: "title",    description: "タスク名",             required: true },
-      { type: 3, name: "category", description: "カテゴリ",             required: true, choices: CATEGORIES },
-      { type: 3, name: "priority", description: "優先度",               required: true, choices: PRIORITIES },
-      { type: 3, name: "note",     description: "メモ・詳細（省略可）", required: false },
+      { type: 3, name: "title",    description: "タスク名",                           required: true },
+      { type: 3, name: "category", description: "カテゴリ",                           required: true, choices: CATEGORIES },
+      { type: 3, name: "priority", description: "優先度",                             required: true, choices: PRIORITIES },
+      { type: 3, name: "note",     description: "メモ・詳細（省略可）",               required: false },
+      { type: 6, name: "assignee", description: "担当者（省略時は送信後に選択）",     required: false },
     ],
   },
   {
