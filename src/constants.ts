@@ -40,6 +40,7 @@ export const IT = {
   PING:              1,
   APP_COMMAND:       2,
   MESSAGE_COMPONENT: 3,
+  AUTOCOMPLETE:      4,
   MODAL_SUBMIT:      5,
 } as const;
 
@@ -49,6 +50,7 @@ export const ICT = {
   CHANNEL_MESSAGE: 4,
   DEFERRED:        5,
   UPDATE_MESSAGE:  7,
+  AUTOCOMPLETE:    8,
   MODAL:           9,
 } as const;
 

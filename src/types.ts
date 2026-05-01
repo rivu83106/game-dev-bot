@@ -92,6 +92,7 @@ export interface DiscordOption {
   name: string;
   value: string | number | boolean;
   options?: DiscordOption[];
+  focused?: boolean;
 }
 
 export interface DiscordModalComponent {

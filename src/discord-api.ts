@@ -1,5 +1,20 @@
 const DISCORD_API = "https://discord.com/api/v10";
 
+export async function fetchGuildMembers(
+  guildId: string,
+  token: string,
+  query: string,
+  limit = 25,
+): Promise<Array<{ user: { id: string; username: string; global_name?: string }; nick?: string }>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (query) params.set("query", query);
+  const res = await fetch(`${DISCORD_API}/guilds/${guildId}/members/search?${params}`, {
+    headers: { Authorization: `Bot ${token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function discordPost(
   path: string,
   token: string,
