@@ -1,5 +1,6 @@
-import { ICT, CT, BS } from "../constants.js";
+import { ICT } from "../constants.js";
 import { shortId, jsonResponse } from "../utils.js";
+import { calStartYearMessage } from "../calendar.js";
 import type { Env, DiscordInteraction, TaskSession } from "../types.js";
 
 export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): Promise<Response> {
@@ -7,6 +8,7 @@ export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): 
   const get  = (name: string) => opts.find(o => o.name === name)?.value;
 
   const title    = String(get("title")    ?? "");
+  const assignee = String(get("assignee") ?? "");
   const category = String(get("category") ?? "other");
   const priority = String(get("priority") ?? "medium");
   const note     = String(get("note")     ?? "");
@@ -15,7 +17,6 @@ export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): 
   const member   = interaction.member;
   const userName = member?.nick ?? member?.user?.global_name ?? member?.user?.username ?? "Unknown";
 
-  // 担当者は次のステップで選ばせる
   const session: TaskSession & { assign_everyone?: boolean } = {
     title, category, priority, note,
     assignee_ids:   [],
@@ -24,39 +25,26 @@ export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): 
     user_name:      userName,
   };
 
+  if (assignee === "everyone") {
+    session.assign_everyone = true;
+  } else if (assignee.includes("|")) {
+    // オートコンプリートから選択: "userId|displayName"
+    const [userId, ...nameParts] = assignee.split("|");
+    session.assignee_ids   = [userId];
+    session.assignee_names = [nameParts.join("|")];
+    session.assign_everyone = false;
+  } else if (assignee) {
+    // 万が一 userId のみの場合
+    session.assignee_ids   = [assignee];
+    session.assignee_names = [assignee];
+    session.assign_everyone = false;
+  }
+
   const sessionKey = shortId();
   await env.KV.put(`session:${sessionKey}`, JSON.stringify(session), { expirationTtl: 900 });
 
   return jsonResponse({
     type: ICT.CHANNEL_MESSAGE,
-    data: {
-      content: "👥 **担当者を選択してください**\nメンバーを直接選ぶか、「全員」ボタンで全員指定できます。",
-      flags: 64, // ephemeral
-      components: [
-        {
-          type: CT.ACTION_ROW,
-          components: [
-            {
-              type: 5, // USER_SELECT
-              custom_id: `assignee:${sessionKey}`,
-              placeholder: "担当者を選択（複数選択可）...",
-              min_values: 1,
-              max_values: 10,
-            },
-          ],
-        },
-        {
-          type: CT.ACTION_ROW,
-          components: [
-            {
-              type: CT.BUTTON,
-              style: BS.SECONDARY,
-              custom_id: `assignee_all:${sessionKey}`,
-              label: "👥 全員を担当者にする",
-            },
-          ],
-        },
-      ],
-    },
+    data: { ...calStartYearMessage(sessionKey), flags: 64 },
   });
 }

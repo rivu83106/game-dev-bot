@@ -58,6 +58,10 @@ export interface DiscordInteraction {
     component_type?: number;
     values?: string[];
     components?: Array<{ type: number; components: DiscordModalComponent[] }>;
+    resolved?: {
+      users?:   Record<string, DiscordUser>;
+      members?: Record<string, { nick?: string }>;
+    };
   };
   guild_id?: string;
   channel_id?: string;
@@ -88,6 +92,7 @@ export interface DiscordOption {
   name: string;
   value: string | number | boolean;
   options?: DiscordOption[];
+  focused?: boolean;
 }
 
 export interface DiscordModalComponent {

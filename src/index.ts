@@ -11,6 +11,7 @@ import { handleMyTasks } from "./commands/myTasks.js";
 import { handleSetup } from "./commands/setup.js";
 import { handleHelp } from "./commands/help.js";
 import { handleTaskDepends } from "./commands/taskDepends.js";
+import { handleAssigneeAutocomplete } from "./commands/assigneeAutocomplete.js";
 import { jsonResponse } from "./utils.js";
 import type { Env, DiscordInteraction } from "./types.js";
 
@@ -36,6 +37,11 @@ export default {
     // スラッシュコマンド
     if (interaction.type === IT.APP_COMMAND) {
       return routeCommand(interaction, env);
+    }
+
+    // オートコンプリート
+    if (interaction.type === IT.AUTOCOMPLETE) {
+      return handleAssigneeAutocomplete(interaction, env);
     }
 
     // コンポーネント（ボタン・セレクトメニュー）
