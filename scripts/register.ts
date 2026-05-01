@@ -118,7 +118,27 @@ const commands = [
   },
 ];
 
+async function clearGlobalCommands() {
+  const url = `https://discord.com/api/v10/applications/${APP_ID}/commands`;
+  console.log("🧹 Global コマンドをクリアしています...");
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { Authorization: `Bot ${TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify([]),
+  });
+  if (res.ok) {
+    console.log("✅ Global コマンドをクリアしました。");
+  } else {
+    console.warn("⚠️  Global クリア失敗（続行します）:", await res.text());
+  }
+}
+
 async function register() {
+  // Guild モードの場合は古い Global コマンドを先にクリア
+  if (mode === "guild") {
+    await clearGlobalCommands();
+  }
+
   const url = mode === "guild"
     ? `https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`
     : `https://discord.com/api/v10/applications/${APP_ID}/commands`;
