@@ -12,6 +12,7 @@ export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): 
   const category = String(get("category") ?? "other");
   const priority = String(get("priority") ?? "medium");
   const note     = String(get("note")     ?? "");
+  const isPublic = get("公開") === true;
 
   const guildId  = interaction.guild_id ?? "dm";
   const member   = interaction.member;
@@ -23,6 +24,7 @@ export async function handleTaskAdd(interaction: DiscordInteraction, env: Env): 
     assignee_names: [],
     guild_id:       guildId,
     user_name:      userName,
+    is_public:      isPublic,
   };
 
   if (assignee === "everyone") {

@@ -10,6 +10,7 @@ export async function handleTaskList(interaction: DiscordInteraction, env: Env):
 
   const filterStatus = String(getOpt("filter_status") ?? "all");
   const filterUser   = getOpt("filter_member") ? String(getOpt("filter_member")) : null;
+  const isPublic     = getOpt("公開") === true;
 
   let allTasks = await getAllTasks(env, guildId);
 
@@ -23,7 +24,7 @@ export async function handleTaskList(interaction: DiscordInteraction, env: Env):
   if (tasks.length === 0) {
     return jsonResponse({
       type: ICT.CHANNEL_MESSAGE,
-      data: { content: "📭 タスクはありません。", flags: 64 },
+      data: { content: "📭 タスクはありません。", flags: isPublic ? undefined : 64 },
     });
   }
 
@@ -55,6 +56,7 @@ export async function handleTaskList(interaction: DiscordInteraction, env: Env):
         color: STATUS_COLORS["in_progress"],
         fields,
       }],
+      flags: isPublic ? undefined : 64,
     },
   });
 }

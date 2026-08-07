@@ -72,6 +72,7 @@ const commands = [
       { type: 3, name: "category", description: "カテゴリ",                            required: true, choices: CATEGORIES },
       { type: 3, name: "priority", description: "優先度",                              required: true, choices: PRIORITIES },
       { type: 3, name: "note",     description: "メモ・詳細（省略可）",                required: false },
+      { type: 5, name: "公開",     description: "チャンネルに全員向けで投稿する（省略時: 自分だけ）", required: false },
     ],
   },
   {
@@ -80,6 +81,7 @@ const commands = [
     options: [
       { type: 3, name: "filter_status", description: "絞り込みステータス", required: false, choices: [{ name: "すべて", value: "all" }, ...STATUSES] },
       { type: 6, name: "filter_member", description: "担当者で絞り込む",   required: false },
+      { type: 5, name: "公開",          description: "全員に表示する（省略時: 自分だけ）", required: false },
     ],
   },
   {

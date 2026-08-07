@@ -29,6 +29,7 @@ export interface TaskSession {
   note: string;
   guild_id: string;
   user_name: string;
+  is_public?: boolean;
 }
 
 // KVに保存するセッションデータ（/task_edit の途中状態）

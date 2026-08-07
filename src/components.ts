@@ -7,6 +7,7 @@ import {
 import {
   makeTaskEmbed, jsonResponse, nowJST,
 } from "./utils.js";
+import { sendFollowup } from "./discord-api.js";
 import {
   calStartYearMessage, calStartMonthMessage, calStartDayMessage,
   calDueYearMessage, calDueMonthMessage, calDueDayMessage, calConfirmMessage,
@@ -195,10 +196,20 @@ async function handleConfirm(i: DiscordInteraction, env: Env, customId: string):
   const embed = makeTaskEmbed(task);
   embed.title = `✅ タスクを作成しました: ${task.title}`;
 
+  // 公開オプションが有効な場合、チャンネルへ全員向けに投稿
+  if (session.is_public) {
+    const publicEmbed = makeTaskEmbed(task);
+    publicEmbed.title = `📋 新しいタスクが追加されました: ${task.title}`;
+    await sendFollowup(i.application_id, i.token, {
+      embeds: [publicEmbed],
+      components: [makeStatusButtons(taskId)],
+    });
+  }
+
   return jsonResponse({
     type: ICT.UPDATE_MESSAGE,
     data: {
-      content: "",
+      content: session.is_public ? "✅ タスクを作成し、チャンネルに通知しました。" : "",
       embeds: [embed],
       components: [makeStatusButtons(taskId)],
     },
