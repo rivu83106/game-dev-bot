@@ -196,14 +196,14 @@ async function handleConfirm(i: DiscordInteraction, env: Env, customId: string):
   const embed = makeTaskEmbed(task);
   embed.title = `✅ タスクを作成しました: ${task.title}`;
 
-  // 公開オプションが有効な場合、チャンネルへ全員向けに投稿
+  // 公開オプションが有効な場合、チャンネルへ全員向けに投稿（非同期・ノンブロッキング）
   if (session.is_public) {
     const publicEmbed = makeTaskEmbed(task);
     publicEmbed.title = `📋 新しいタスクが追加されました: ${task.title}`;
-    await sendFollowup(i.application_id, i.token, {
+    sendFollowup(i.application_id, i.token, {
       embeds: [publicEmbed],
       components: [makeStatusButtons(taskId)],
-    });
+    }).catch(() => {});
   }
 
   return jsonResponse({
